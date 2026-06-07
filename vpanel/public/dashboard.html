@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VPanel — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800;900&display=swap" rel="stylesheet">
+<script src="/socket.io/socket.io.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#07070d;--surface:#0e0e18;--surface2:#13131f;--border:#1a1a2e;
+  --accent:#00ff9d;--accent2:#7c3aed;--accent3:#0ea5e9;
+  --text:#e2e8f0;--muted:#475569;--danger:#ff4757;--warn:#f59e0b;--success:#00ff9d;
+}
+body{background:var(--bg);color:var(--text);font-family:'Space Mono',monospace;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+.grid-bg{position:fixed;inset:0;background-image:linear-gradient(rgba(0,255,157,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,157,.02) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+.topbar{
+  position:relative;z-index:10;
+  display:flex;align-items:center;gap:0;
+  height:52px;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.logo{
+  display:flex;align-items:center;gap:10px;
+  padding:0 20px;
+  border-right:1px solid var(--border);
+  height:100%;
+  min-width:200px;
+}
+.logo-icon{width:28px;height:28px;background:var(--accent);clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px}
+.logo h1{font-family:'Syne',sans-serif;font-size:15px;font-weight:900;letter-spacing:3px;text-transform:uppercase}
+.logo span{color:var(--accent)}
+.topbar-tabs{
+  display:flex;align-items:center;height:100%;
+  flex:1;overflow-x:auto;
+}
+.tab{
+  display:flex;align-items:center;gap:8px;
+  padding:0 20px;height:100%;
+  font-size:10px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--muted);cursor:pointer;
+  border-right:1px solid var(--border);
+  transition:all .15s;
+  white-space:nowrap;flex-shrink:0;
+}
+.tab:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.tab.active{color:var(--accent);border-bottom:2px solid var(--accent);background:rgba(0,255,157,.04)}
+.tab svg{width:14px;height:14px}
+.topbar-right{
+  display:flex;align-items:center;gap:0;
+  border-left:1px solid var(--border);
+  height:100%;
+}
+.topbar-right button{
+  all:unset;
+  display:flex;align-items:center;gap:6px;
+  padding:0 16px;height:100%;
+  font-family:'Space Mono',monospace;
+  font-size:10px;letter-spacing:1px;color:var(--muted);
+  cursor:pointer;border-right:1px solid var(--border);
+  transition:all .15s;
+}
+.topbar-right button:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.topbar-right button.danger:hover{color:var(--danger)}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.main{display:flex;flex:1;overflow:hidden;position:relative;z-index:1}
+.sidebar{
+  width:200px;flex-shrink:0;
+  background:var(--surface);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  overflow-y:auto;
+}
+.sidebar-section{padding:16px 0}
+.sidebar-label{
+  padding:0 16px 8px;
+  font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);
+}
+.sidebar-item{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 16px;font-size:11px;
+  color:var(--muted);cursor:pointer;
+  transition:all .15s;border-left:2px solid transparent;
+}
+.sidebar-item:hover{color:var(--text);background:rgba(255,255,255,.02)}
+.sidebar-item.active{color:var(--accent);border-left-color:var(--accent);background:rgba(0,255,157,.04)}
+.sidebar-item svg{width:13px;height:13px;flex-shrink:0}
+.server-item{
+  padding:8px 12px;margin:2px 8px;
+  border:1px solid var(--border);border-radius:2px;
+  cursor:pointer;transition:all .15s;
+}
+.server-item:hover{border-color:var(--accent);background:rgba(0,255,157,.04)}
+.server-item.active{border-color:var(--accent);background:rgba(0,255,157,.06)}
+.server-name{font-size:11px;color:var(--text);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.server-status{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:9px;letter-spacing:1px;text-transform:uppercase;
+}
+.srv-dot{width:5px;height:5px;border-radius:50%}
+.srv-dot.running{background:var(--accent);box-shadow:0 0 6px var(--accent)}
+.srv-dot.stopped{background:var(--muted)}
+.srv-dot.error{background:var(--danger)}
+.content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.page{display:none;flex-direction:column;height:100%;overflow:hidden}
+.page.active{display:flex}
+.page-header{
+  padding:20px 24px 0;
+  display:flex;align-items:center;justify-content:space-between;
+  flex-shrink:0;
+}
+.page-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;letter-spacing:1px}
+.page-title span{color:var(--accent)}
+.page-body{flex:1;overflow-y:auto;padding:20px 24px}
+.btn{
+  all:unset;display:inline-flex;align-items:center;gap:6px;
+  padding:8px 16px;border-radius:2px;
+  font-family:'Space Mono',monospace;font-size:10px;
+  letter-spacing:2px;text-transform:uppercase;cursor:pointer;
+  transition:all .15s;
+}
+.btn-primary{background:var(--accent);color:#000;font-weight:700}
+.btn-primary:hover{background:#00e88a;transform:translateY(-1px)}
+.btn-ghost{border:1px solid var(--border);color:var(--muted)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn-danger{border:1px solid rgba(255,71,87,.3);color:var(--danger)}
+.btn-danger:hover{background:rgba(255,71,87,.1)}
+.btn-success{background:rgba(0,255,157,.1);border:1px solid rgba(0,255,157,.3);color:var(--accent)}
+.btn-success:hover{background:rgba(0,255,157,.2)}
+.btn-warn{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:var(--warn)}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.stat-card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:2px;padding:16px;
+  position:relative;overflow:hidden;
+}
+.stat-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:var(--accent);transform:scaleX(0);transform-origin:left;
+  transition:transform .3s;
+}
+.stat-card:hover::before{transform:scaleX(1)}
+.stat-label{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.stat-value{font-family:'Syne',sans-serif;font-size:26px;font-weight:900;color:var(--text);line-height:1}
+.stat-sub{font-size:10px;color:var(--muted);margin-top:6px}
+.stat-bar{
+  height:3px;background:var(--border);border-radius:2px;margin-top:10px;overflow:hidden;
+}
+.stat-bar-fill{height:100%;border-radius:2px;transition:width 1s ease;background:var(--accent)}
+.stat-bar-fill.warn{background:var(--warn)}
+.stat-bar-fill.danger{background:var(--danger)}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.info-card{background:var(--surface);border:1px solid var(--border);border-radius:2px;padding:16px}
+.info-card h3{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.info-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px}
+.info-row:last-child{border:none}
+.info-row span:first-child{color:var(--muted)}
+.info-row span:last-child{color:var(--text)}
+.log-box{
+  background:#050509;border:1px solid var(--border);border-radius:2px;
+  height:200px;overflow-y:auto;padding:12px;
+  font-size:11px;line-height:1.8;
+}
+.log-line{padding:1px 0}
+.log-line.error{color:var(--danger)}
+.log-line.success{color:var(--accent)}
+.log-line.info{color:var(--accent3)}
+.form-group{margin-bottom:20px}
+.form-label{display:block;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.form-input{
+  width:100%;background:#050509;border:1px solid var(--border);
+  color:var(--text);font-family:'Space Mono',monospace;font-size:13px;
+  padding:10px 14px;border-radius:2px;outline:none;transition:border-color .2s;
+}
+.form-input:focus{border-color:var(--accent)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:100;
+  display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px);
+}
+.modal-overlay.open{display:flex}
+.modal{
+  background:var(--surface);border:1px solid var(--border);border-radius:4px;
+  padding:32px;width:520px;animation:modalIn .2s ease;
+}
+@keyframes modalIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+.modal h3{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;margin-bottom:8px}
+.modal p{color:var(--muted);font-size:11px;margin-bottom:24px;line-height:1.7}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:24px}
+.server-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:2px;
+  padding:16px;margin-bottom:12px;
+  display:flex;align-items:center;gap:16px;
+}
+.server-card-info{flex:1;min-width:0}
+.server-card-name{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:4px}
+.server-card-url{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.server-card-actions{display:flex;gap:8px;flex-shrink:0}
+.badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:2px 8px;border-radius:2px;
+  font-size:9px;letter-spacing:1px;text-transform:uppercase;
+}
+.badge-green{background:rgba(0,255,157,.1);border:1px solid rgba(0,255,157,.2);color:var(--accent)}
+.badge-red{background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.2);color:var(--danger)}
+.badge-gray{background:rgba(100,116,139,.1);border:1px solid rgba(100,116,139,.2);color:var(--muted)}
+.file-browser{
+  background:var(--surface);border:1px solid var(--border);border-radius:2px;
+  flex:1;display:flex;flex-direction:column;overflow:hidden;
+}
+.file-toolbar{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 12px;border-bottom:1px solid var(--border);
+  flex-shrink:0;flex-wrap:wrap;
+}
+.breadcrumb{
+  flex:1;display:flex;align-items:center;gap:0;
+  font-size:11px;overflow:hidden;
+}
+.breadcrumb-part{
+  color:var(--muted);cursor:pointer;
+  padding:3px 6px;border-radius:2px;
+  transition:color .15s;white-space:nowrap;
+}
+.breadcrumb-part:hover{color:var(--accent)}
+.breadcrumb-sep{color:var(--border);padding:0 2px}
+.file-list{flex:1;overflow-y:auto}
+.file-row{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 12px;border-bottom:1px solid rgba(26,26,46,.5);
+  cursor:pointer;transition:background .1s;font-size:11px;
+}
+.file-row:hover{background:rgba(255,255,255,.02)}
+.file-row:hover .file-actions{opacity:1}
+.file-icon{width:16px;text-align:center;flex-shrink:0;font-size:12px}
+.file-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-size{color:var(--muted);font-size:10px;width:80px;text-align:right;flex-shrink:0}
+.file-date{color:var(--muted);font-size:10px;width:130px;text-align:right;flex-shrink:0}
+.file-actions{opacity:0;display:flex;gap:4px;transition:opacity .15s;flex-shrink:0}
+.file-btn{
+  all:unset;display:flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:2px;cursor:pointer;
+  color:var(--muted);font-size:11px;transition:all .15s;
+}
+.file-btn:hover.rename{color:var(--accent3)}
+.file-btn:hover.delete{color:var(--danger)}
+.editor-modal{width:90vw;max-width:900px;height:80vh;display:flex;flex-direction:column}
+.editor-modal textarea{
+  flex:1;background:#020207;border:1px solid var(--border);
+  color:var(--accent);font-family:'Space Mono',monospace;font-size:12px;
+  line-height:1.6;padding:16px;border-radius:2px;outline:none;
+  resize:none;tab-size:2;
+}
+.terminal-box{
+  background:#020207;border:1px solid var(--border);border-radius:2px;
+  display:flex;flex-direction:column;flex:1;overflow:hidden;
+}
+.terminal-out{
+  flex:1;overflow-y:auto;padding:12px;
+  font-size:11px;line-height:1.8;color:#a0f5c0;
+}
+.terminal-input-row{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 12px;border-top:1px solid var(--border);
+}
+.terminal-prompt{color:var(--accent);font-size:11px;white-space:nowrap}
+.terminal-in{
+  flex:1;background:transparent;border:none;outline:none;
+  color:var(--text);font-family:'Space Mono',monospace;font-size:11px;
+}
+.progress-bar{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin:8px 0}
+.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .3s}
+.empty-state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:60px;text-align:center;color:var(--muted);gap:12px;
+}
+.empty-state svg{opacity:.3}
+.empty-state p{font-size:12px}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+.notif{
+  position:fixed;bottom:20px;right:20px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:2px;padding:12px 16px;font-size:11px;
+  z-index:200;animation:slideIn .2s ease;
+  max-width:300px;
+}
+.notif.success{border-left:3px solid var(--accent);color:var(--accent)}
+.notif.error{border-left:3px solid var(--danger);color:var(--danger)}
+.notif.info{border-left:3px solid var(--accent3);color:var(--accent3)}
+@keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">▲</div>
+    <h1>V<span>Panel</span></h1>
+  </div>
+  <div class="topbar-tabs">
+    <div class="tab active" data-page="dashboard" onclick="showPage('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </div>
+    <div class="tab" data-page="servers" onclick="showPage('servers')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+      Servidores
+    </div>
+    <div class="tab" data-page="files" onclick="showPage('files')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      Archivos
+    </div>
+    <div class="tab" data-page="terminal" onclick="showPage('terminal')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      Terminal
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button>
+      <div class="status-dot"></div>
+      <span id="hostname-label">Online</span>
+    </button>
+    <button class="danger" onclick="logout()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Salir
+    </button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Sistema</div>
+      <div class="sidebar-item active" onclick="showPage('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Estadísticas
+      </div>
+      <div class="sidebar-item" onclick="showPage('files')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Archivos
+      </div>
+      <div class="sidebar-item" onclick="showPage('terminal')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        Terminal
+      </div>
+    </div>
+    <div class="sidebar-section" style="border-top:1px solid var(--border)">
+      <div class="sidebar-label">Servidores</div>
+      <div id="sidebar-servers"></div>
+      <div style="padding:0 8px;margin-top:8px">
+        <button class="btn btn-ghost" style="width:100%;justify-content:center;font-size:9px" onclick="showPage('servers');openAddServer()">+ Agregar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- DASHBOARD PAGE -->
+    <div class="page active" id="page-dashboard">
+      <div class="page-header">
+        <div class="page-title">Dashboard <span>/ Sistema</span></div>
+        <button class="btn btn-ghost" onclick="loadStats()" style="font-size:9px">↻ Actualizar</button>
+      </div>
+      <div class="page-body">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">CPU</div>
+            <div class="stat-value" id="stat-cpu">—</div>
+            <div class="stat-sub" id="stat-cpu-sub">cargando...</div>
+            <div class="stat-bar"><div class="stat-bar-fill" id="bar-cpu" style="width:0%"></div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Memoria RAM</div>
+            <div class="stat-value" id="stat-ram">—</div>
+            <div class="stat-sub" id="stat-ram-sub">cargando...</div>
+            <div class="stat-bar"><div class="stat-bar-fill" id="bar-ram" style="width:0%"></div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Disco</div>
+            <div class="stat-value" id="stat-disk">—</div>
+            <div class="stat-sub" id="stat-disk-sub">cargando...</div>
+            <div class="stat-bar"><div class="stat-bar-fill" id="bar-disk" style="width:0%"></div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Uptime</div>
+            <div class="stat-value" id="stat-uptime">—</div>
+            <div class="stat-sub" id="stat-uptime-sub">cargando...</div>
+          </div>
+        </div>
+        <div class="info-grid">
+          <div class="info-card">
+            <h3>Información del sistema</h3>
+            <div id="sys-info">
+              <div class="info-row"><span>Hostname</span><span id="si-hostname">—</span></div>
+              <div class="info-row"><span>Plataforma</span><span id="si-platform">—</span></div>
+              <div class="info-row"><span>CPU Cores</span><span id="si-cores">—</span></div>
+              <div class="info-row"><span>CPU Modelo</span><span id="si-model" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</span></div>
+              <div class="info-row"><span>Load Avg (1m)</span><span id="si-load">—</span></div>
+            </div>
+          </div>
+          <div class="info-card">
+            <h3>Red</h3>
+            <div id="net-info">
+              <div class="info-row"><span>Cargando...</span><span>—</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="info-card">
+          <h3 style="margin-bottom:12px">Servidores activos</h3>
+          <div id="active-servers-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SERVERS PAGE -->
+    <div class="page" id="page-servers">
+      <div class="page-header">
+        <div class="page-title">Servidores <span>/ Gestión</span></div>
+        <button class="btn btn-primary" onclick="openAddServer()">+ Nuevo servidor</button>
+      </div>
+      <div class="page-body">
+        <div id="servers-list"></div>
+        <div id="server-console-section" style="display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)">Consola — <span id="console-server-name" style="color:var(--accent)">—</span></div>
+            <button class="btn btn-ghost" style="font-size:9px" onclick="clearConsole()">Limpiar</button>
+          </div>
+          <div class="log-box" id="server-console"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILES PAGE -->
+    <div class="page" id="page-files">
+      <div class="page-header" style="margin-bottom:16px">
+        <div class="page-title">Archivos <span>/ Explorador</span></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" onclick="createFileDialog()" style="font-size:9px">+ Archivo</button>
+          <button class="btn btn-ghost" onclick="createDirDialog()" style="font-size:9px">+ Carpeta</button>
+        </div>
+      </div>
+      <div class="page-body" style="display:flex;flex-direction:column;padding-top:0">
+        <div class="file-browser">
+          <div class="file-toolbar">
+            <button class="btn btn-ghost" style="font-size:9px;padding:5px 10px" onclick="goBack()">← Atrás</button>
+            <div class="breadcrumb" id="breadcrumb"></div>
+          </div>
+          <div class="file-list" id="file-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TERMINAL PAGE -->
+    <div class="page" id="page-terminal">
+      <div class="page-header" style="margin-bottom:16px">
+        <div class="page-title">Terminal <span>/ Shell</span></div>
+        <button class="btn btn-ghost" onclick="clearTerminal()" style="font-size:9px">Limpiar</button>
+      </div>
+      <div class="page-body" style="display:flex;flex-direction:column;padding-top:0">
+        <div class="terminal-box">
+          <div class="terminal-out" id="terminal-out">
+            <div style="color:var(--muted)">VPanel Terminal — conexión establecida</div>
+            <div style="color:var(--muted)">Escribe comandos a continuación</div>
+            <div style="color:var(--muted);margin-bottom:8px">─────────────────────────────────</div>
+          </div>
+          <div class="terminal-input-row">
+            <div class="terminal-prompt" id="terminal-prompt">root@server:~$</div>
+            <input class="terminal-in" id="terminal-in" placeholder="ingresa un comando..." onkeydown="handleTerminalKey(event)" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD SERVER MODAL -->
+<div class="modal-overlay" id="modal-add">
+  <div class="modal">
+    <h3>Agregar servidor</h3>
+    <p>Configura un nuevo servidor desde un repositorio Git. Si el repositorio es privado, ingresa el token de acceso.</p>
+    <div class="form-group">
+      <label class="form-label">Nombre del servidor</label>
+      <input class="form-input" id="srv-name" placeholder="Mi Bot / API Server / etc.">
+    </div>
+    <div class="form-group">
+      <label class="form-label">URL del repositorio Git</label>
+      <input class="form-input" id="srv-repo" placeholder="https://github.com/usuario/repo.git">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Token Git (solo repos privados)</label>
+      <input class="form-input" id="srv-token" placeholder="ghp_xxxxxxxxxxxx" type="password">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Comando de inicio</label>
+        <input class="form-input" id="srv-cmd" placeholder="npm start" value="npm start">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-add')">Cancelar</button>
+      <button class="btn btn-primary" onclick="addServer()">Crear servidor</button>
+    </div>
+  </div>
+</div>
+
+<!-- RENAME MODAL -->
+<div class="modal-overlay" id="modal-rename">
+  <div class="modal" style="width:400px">
+    <h3>Renombrar</h3>
+    <p>Introduce el nuevo nombre para el archivo o carpeta.</p>
+    <div class="form-group">
+      <label class="form-label">Nuevo nombre</label>
+      <input class="form-input" id="rename-input" onkeydown="if(event.key==='Enter')confirmRename()">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-rename')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmRename()">Renombrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- FILE EDITOR MODAL -->
+<div class="modal-overlay" id="modal-editor">
+  <div class="modal editor-modal">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="font-size:14px" id="editor-title">editor</h3>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="font-size:9px" onclick="saveFile()">Guardar</button>
+        <button class="btn btn-ghost" style="font-size:9px" onclick="closeModal('modal-editor')">Cerrar</button>
+      </div>
+    </div>
+    <textarea id="editor-content" spellcheck="false" onkeydown="handleTabInEditor(event)"></textarea>
+  </div>
+</div>
+
+<!-- DELETE CONFIRM MODAL -->
+<div class="modal-overlay" id="modal-delete">
+  <div class="modal" style="width:380px">
+    <h3>Eliminar</h3>
+    <p id="delete-msg">¿Estás seguro? Esta acción no se puede deshacer.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-delete')">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmDelete()">Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const socket = io();
+let currentPath = '/';
+let servers = [];
+let selectedServer = null;
+let renameTarget = null;
+let deleteTarget = null;
+let editorFile = null;
+let termHistory = [];
+let termIdx = -1;
+let termCwd = '/root';
+
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
+  if(name==='files') loadFiles(currentPath);
+  if(name==='dashboard') loadStats();
+  if(name==='servers') loadServers();
+}
+
+async function loadStats() {
+  try {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+    document.getElementById('si-hostname').textContent = d.hostname;
+    document.getElementById('hostname-label').textContent = d.hostname;
+    document.getElementById('si-platform').textContent = d.platform;
+    document.getElementById('si-cores').textContent = d.cpu.cores;
+    document.getElementById('si-model').textContent = d.cpu.model;
+    document.getElementById('si-load').textContent = d.cpu.load[0].toFixed(2);
+    const load = d.cpu.load[0];
+    const cpuPct = Math.min(Math.round((load / d.cpu.cores) * 100), 100);
+    document.getElementById('stat-cpu').textContent = cpuPct + '%';
+    document.getElementById('stat-cpu-sub').textContent = `Load: ${load.toFixed(2)}`;
+    const bar = document.getElementById('bar-cpu');
+    bar.style.width = cpuPct + '%';
+    bar.className = 'stat-bar-fill' + (cpuPct > 80 ? ' danger' : cpuPct > 60 ? ' warn' : '');
+    const ramPct = Math.round((d.memory.used / d.memory.total) * 100);
+    document.getElementById('stat-ram').textContent = ramPct + '%';
+    document.getElementById('stat-ram-sub').textContent = `${fmt(d.memory.used)} / ${fmt(d.memory.total)}`;
+    const barR = document.getElementById('bar-ram');
+    barR.style.width = ramPct + '%';
+    barR.className = 'stat-bar-fill' + (ramPct > 80 ? ' danger' : ramPct > 60 ? ' warn' : '');
+    if(d.disk.total > 0) {
+      const diskPct = Math.round((d.disk.used / d.disk.total) * 100);
+      document.getElementById('stat-disk').textContent = diskPct + '%';
+      document.getElementById('stat-disk-sub').textContent = `${fmt(d.disk.used)} / ${fmt(d.disk.total)}`;
+      const barD = document.getElementById('bar-disk');
+      barD.style.width = diskPct + '%';
+      barD.className = 'stat-bar-fill' + (diskPct > 80 ? ' danger' : diskPct > 60 ? ' warn' : '');
+    }
+    const up = d.uptime;
+    const h = Math.floor(up/3600), m = Math.floor((up%3600)/60);
+    document.getElementById('stat-uptime').textContent = `${h}h`;
+    document.getElementById('stat-uptime-sub').textContent = `${h}h ${m}m corriendo`;
+    const net = d.network;
+    const ni = document.getElementById('net-info');
+    ni.innerHTML = Object.entries(net).map(([k,v]) =>
+      `<div class="info-row"><span>${k}</span><span>↓${fmt(v.rx)} ↑${fmt(v.tx)}</span></div>`
+    ).join('') || '<div class="info-row"><span>Sin datos</span><span>—</span></div>';
+    const asl = document.getElementById('active-servers-list');
+    const running = servers.filter(s=>s.status==='running');
+    if(!running.length) {
+      asl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px 0">No hay servidores corriendo</div>';
+    } else {
+      asl.innerHTML = running.map(s =>
+        `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+          <div class="srv-dot running"></div>
+          <div style="flex:1;font-size:11px">${s.name}</div>
+          <span class="badge badge-green">RUNNING</span>
+          <button class="btn btn-danger" style="padding:4px 10px;font-size:9px" onclick="stopServer('${s.id}')">Detener</button>
+        </div>`
+      ).join('');
+    }
+  } catch(e) { console.error(e); }
+}
+
+function fmt(bytes) {
+  if(bytes > 1e9) return (bytes/1e9).toFixed(1)+'G';
+  if(bytes > 1e6) return (bytes/1e6).toFixed(1)+'M';
+  if(bytes > 1e3) return (bytes/1e3).toFixed(1)+'K';
+  return bytes+'B';
+}
+
+async function loadServers() {
+  const r = await fetch('/api/servers');
+  servers = await r.json();
+  renderServers();
+  renderSidebarServers();
+}
+
+function renderSidebarServers() {
+  const el = document.getElementById('sidebar-servers');
+  el.innerHTML = servers.map(s => `
+    <div class="server-item ${selectedServer===s.id?'active':''}" onclick="selectServer('${s.id}')">
+      <div class="server-name">${s.name}</div>
+      <div class="server-status">
+        <div class="srv-dot ${s.status||'stopped'}"></div>
+        <span style="color:var(--muted);font-size:9px">${s.status||'stopped'}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function selectServer(id) {
+  selectedServer = id;
+  showPage('servers');
+}
+
+function renderServers() {
+  const el = document.getElementById('servers-list');
+  if(!servers.length) {
+    el.innerHTML = `<div class="empty-state">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg>
+      <p>Sin servidores configurados</p>
+      <button class="btn btn-primary" onclick="openAddServer()" style="margin-top:8px">+ Agregar primer servidor</button>
+    </div>`;
+    return;
+  }
+  el.innerHTML = servers.map(s => `
+    <div class="server-card" id="scard-${s.id}">
+      <div>
+        <div class="srv-dot ${s.status||'stopped'}" style="width:8px;height:8px;margin-bottom:4px"></div>
+      </div>
+      <div class="server-card-info">
+        <div class="server-card-name">${s.name}</div>
+        <div class="server-card-url">${s.repoUrl}</div>
+        <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
+          <span class="badge ${s.status==='running'?'badge-green':s.status==='error'?'badge-red':'badge-gray'}">${s.status||'stopped'}</span>
+          ${s.installed?'<span class="badge badge-green" style="font-size:8px">instalado</span>':'<span class="badge badge-gray" style="font-size:8px">sin instalar</span>'}
+          ${s.pid?`<span style="color:var(--muted);font-size:9px">PID: ${s.pid}</span>`:''}
+        </div>
+      </div>
+      <div class="server-card-actions">
+        ${!s.installed?`<button class="btn btn-warn" style="font-size:9px" onclick="installServer('${s.id}')">⬇ Instalar</button>`:''}
+        ${s.status==='running'
+          ? `<button class="btn btn-danger" style="font-size:9px" onclick="stopServer('${s.id}')">■ Detener</button>
+             <button class="btn btn-ghost" style="font-size:9px" onclick="restartServer('${s.id}')">↺ Reiniciar</button>`
+          : `<button class="btn btn-success" style="font-size:9px" onclick="startServer('${s.id}')" ${!s.installed?'disabled':''}>▶ Iniciar</button>`
+        }
+        <button class="btn btn-ghost" style="font-size:9px" onclick="viewConsole('${s.id}')">≡ Consola</button>
+        <button class="btn btn-danger" style="font-size:9px" onclick="deleteServer('${s.id}')">✕</button>
+      </div>
+    </div>
+  `).join('');
+  document.getElementById('server-console-section').style.display = 'none';
+}
+
+function openAddServer() { openModal('modal-add'); }
+
+async function addServer() {
+  const name = document.getElementById('srv-name').value;
+  const repoUrl = document.getElementById('srv-repo').value;
+  const gitToken = document.getElementById('srv-token').value;
+  const startCmd = document.getElementById('srv-cmd').value || 'npm start';
+  if(!name||!repoUrl) { notify('Nombre y URL requeridos', 'error'); return; }
+  const r = await fetch('/api/servers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name,repoUrl,gitToken,startCmd}) });
+  const srv = await r.json();
+  if(srv.error) { notify(srv.error, 'error'); return; }
+  closeModal('modal-add');
+  notify('Servidor creado. Haz clic en Instalar para clonarlo.', 'success');
+  ['srv-name','srv-repo','srv-token'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('srv-cmd').value='npm start';
+  await loadServers();
+}
+
+async function installServer(id) {
+  notify('Instalando servidor...', 'info');
+  viewConsole(id);
+  await fetch(`/api/servers/${id}/install`, { method:'POST' });
+}
+
+async function startServer(id) {
+  const r = await fetch(`/api/servers/${id}/start`, { method:'POST' });
+  const d = await r.json();
+  if(d.error) notify(d.error, 'error');
+  else { notify('Servidor iniciado', 'success'); viewConsole(id); await loadServers(); }
+}
+
+async function stopServer(id) {
+  await fetch(`/api/servers/${id}/stop`, { method:'POST' });
+  notify('Servidor detenido', 'info');
+  await loadServers();
+}
+
+async function restartServer(id) {
+  await fetch(`/api/servers/${id}/restart`, { method:'POST' });
+  notify('Reiniciando...', 'info');
+  setTimeout(()=>startServer(id), 1200);
+}
+
+async function deleteServer(id) {
+  if(!confirm('¿Eliminar este servidor?')) return;
+  await fetch(`/api/servers/${id}`, { method:'DELETE' });
+  notify('Servidor eliminado', 'info');
+  await loadServers();
+}
+
+function viewConsole(id) {
+  const srv = servers.find(s => s.id === id);
+  document.getElementById('console-server-name').textContent = srv?.name || id;
+  document.getElementById('server-console-section').style.display = 'block';
+  selectedServer = id;
+  document.getElementById('server-console').scrollTop = 9999;
+}
+
+function clearConsole() { document.getElementById('server-console').innerHTML = ''; }
+
+socket.on('server-log', ({id, msg, type}) => {
+  if(!msg) return;
+  if(selectedServer === id || document.getElementById('server-console-section').style.display!=='none') {
+    const box = document.getElementById('server-console');
+    const line = document.createElement('div');
+    line.className = 'log-line ' + (type||'');
+    line.textContent = msg;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+  }
+});
+
+socket.on('server-status', async ({id, status, pid, installed}) => {
+  const srv = servers.find(s => s.id === id);
+  if(srv) {
+    srv.status = status;
+    if(pid !== undefined) srv.pid = pid;
+    if(installed !== undefined) srv.installed = installed;
+    renderServers();
+    renderSidebarServers();
+  }
+});
+
+async function loadFiles(dir) {
+  currentPath = dir || '/';
+  const r = await fetch('/api/files?dir=' + encodeURIComponent(currentPath));
+  const d = await r.json();
+  if(d.error) { notify(d.error, 'error'); return; }
+  renderBreadcrumb(d.path);
+  renderFileList(d.items, d.parent);
+}
+
+function renderBreadcrumb(p) {
+  const parts = p.split('/').filter(Boolean);
+  let html = `<span class="breadcrumb-part" onclick="loadFiles('/')">~</span>`;
+  let built = '';
+  parts.forEach((part, i) => {
+    built += '/' + part;
+    const path2 = built;
+    html += `<span class="breadcrumb-sep">/</span><span class="breadcrumb-part" onclick="loadFiles('${path2}')">${part}</span>`;
+  });
+  document.getElementById('breadcrumb').innerHTML = html;
+}
+
+function renderFileList(items, parent) {
+  const el = document.getElementById('file-list');
+  let html = '';
+  if(parent && currentPath !== '/') {
+    html += `<div class="file-row" ondblclick="loadFiles('${parent}')">
+      <div class="file-icon">📁</div>
+      <div class="file-name" style="color:var(--muted)">..</div>
+      <div class="file-size"></div><div class="file-date"></div>
+      <div class="file-actions"></div>
+    </div>`;
+  }
+  items.sort((a,b) => b.isDir - a.isDir || a.name.localeCompare(b.name));
+  items.forEach(f => {
+    const icon = f.isDir ? '📁' : getIcon(f.name);
+    const size = f.isDir ? '' : fmt(f.size);
+    const date = new Date(f.mtime).toLocaleDateString('es', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+    const action = f.isDir ? `ondblclick="loadFiles('${f.path}')"` : `ondblclick="openEditor('${f.path}')"`;
+    html += `<div class="file-row" ${action}>
+      <div class="file-icon">${icon}</div>
+      <div class="file-name">${f.name}</div>
+      <div class="file-size">${size}</div>
+      <div class="file-date">${date}</div>
+      <div class="file-actions">
+        <button class="file-btn rename" title="Renombrar" onclick="event.stopPropagation();renameFile('${f.path}','${f.name}')">✎</button>
+        <button class="file-btn delete" title="Eliminar" onclick="event.stopPropagation();promptDelete('${f.path}','${f.name}')">✕</button>
+      </div>
+    </div>`;
+  });
+  if(!items.length && currentPath === '/') html = `<div class="empty-state"><p>Carpeta vacía</p></div>`;
+  el.innerHTML = html;
+}
+
+function getIcon(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  const icons = {js:'📜',ts:'📜',py:'🐍',go:'🐹',rs:'🦀',json:'📋',md:'📝',txt:'📄',sh:'⚙️',env:'🔒',yml:'⚙️',yaml:'⚙️',html:'🌐',css:'🎨',png:'🖼️',jpg:'🖼️',gif:'🖼️',mp4:'🎬',mp3:'🎵',zip:'📦',tar:'📦',gz:'📦'};
+  return icons[ext] || '📄';
+}
+
+function goBack() { loadFiles(require('path').dirname(currentPath) || '/'); }
+function goBack() { const parts = currentPath.split('/').filter(Boolean); parts.pop(); loadFiles('/'+parts.join('/')||'/'); }
+
+async function openEditor(filePath) {
+  editorFile = filePath;
+  document.getElementById('editor-title').textContent = filePath.split('/').pop();
+  const r = await fetch('/api/files/read?file=' + encodeURIComponent(filePath));
+  const d = await r.json();
+  if(d.error) { notify(d.error, 'error'); return; }
+  document.getElementById('editor-content').value = d.content;
+  openModal('modal-editor');
+}
+
+async function saveFile() {
+  const content = document.getElementById('editor-content').value;
+  const r = await fetch('/api/files/write', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({file:editorFile,content}) });
+  const d = await r.json();
+  if(d.ok) notify('Archivo guardado', 'success');
+  else notify(d.error, 'error');
+}
+
+function handleTabInEditor(e) {
+  if(e.key === 'Tab') {
+    e.preventDefault();
+    const t = e.target;
+    const s = t.selectionStart, end = t.selectionEnd;
+    t.value = t.value.substring(0,s) + '  ' + t.value.substring(end);
+    t.selectionStart = t.selectionEnd = s + 2;
+  }
+}
+
+function renameFile(filePath, name) {
+  renameTarget = filePath;
+  document.getElementById('rename-input').value = name;
+  openModal('modal-rename');
+  setTimeout(() => { const el = document.getElementById('rename-input'); el.focus(); el.select(); }, 100);
+}
+
+async function confirmRename() {
+  const newName = document.getElementById('rename-input').value;
+  if(!newName) return;
+  const r = await fetch('/api/files/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({oldPath:renameTarget,newName}) });
+  const d = await r.json();
+  if(d.ok) { notify('Renombrado exitosamente', 'success'); closeModal('modal-rename'); loadFiles(currentPath); }
+  else notify(d.error, 'error');
+}
+
+function promptDelete(filePath, name) {
+  deleteTarget = filePath;
+  document.getElementById('delete-msg').textContent = `¿Eliminar "${name}"? Esta acción no se puede deshacer.`;
+  openModal('modal-delete');
+}
+
+async function confirmDelete() {
+  const r = await fetch('/api/files/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({filePath:deleteTarget}) });
+  const d = await r.json();
+  if(d.ok) { notify('Eliminado', 'success'); closeModal('modal-delete'); loadFiles(currentPath); }
+  else notify(d.error, 'error');
+}
+
+function createFileDialog() {
+  const name = prompt('Nombre del archivo:');
+  if(!name) return;
+  fetch('/api/files/create', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({filePath: currentPath+'/'+name}) })
+    .then(r=>r.json()).then(d => { if(d.ok){notify('Archivo creado','success');loadFiles(currentPath);} else notify(d.error,'error'); });
+}
+
+function createDirDialog() {
+  const name = prompt('Nombre de la carpeta:');
+  if(!name) return;
+  fetch('/api/files/mkdir', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({dirPath: currentPath+'/'+name}) })
+    .then(r=>r.json()).then(d => { if(d.ok){notify('Carpeta creada','success');loadFiles(currentPath);} else notify(d.error,'error'); });
+}
+
+function handleTerminalKey(e) {
+  if(e.key === 'Enter') {
+    const cmd = e.target.value.trim();
+    if(!cmd) return;
+    termHistory.unshift(cmd);
+    termIdx = -1;
+    addTermLine(`${termCwd} $ ${cmd}`, 'var(--accent3)');
+    e.target.value = '';
+    socket.emit('terminal-input', { cmd, cwd: termCwd });
+  }
+  if(e.key === 'ArrowUp') {
+    termIdx = Math.min(termIdx+1, termHistory.length-1);
+    e.target.value = termHistory[termIdx] || '';
+    e.preventDefault();
+  }
+  if(e.key === 'ArrowDown') {
+    termIdx = Math.max(termIdx-1, -1);
+    e.target.value = termIdx>=0 ? termHistory[termIdx] : '';
+    e.preventDefault();
+  }
+}
+
+socket.on('terminal-output', ({output, cwd}) => {
+  if(cwd) termCwd = cwd;
+  if(output) addTermLine(output);
+  document.getElementById('terminal-prompt').textContent = `root@server:${termCwd}$`;
+});
+
+function addTermLine(text, color) {
+  const out = document.getElementById('terminal-out');
+  text.split('\n').forEach(line => {
+    if(!line) return;
+    const div = document.createElement('div');
+    div.textContent = line;
+    if(color) div.style.color = color;
+    out.appendChild(div);
+  });
+  out.scrollTop = out.scrollHeight;
+}
+
+function clearTerminal() { document.getElementById('terminal-out').innerHTML = ''; }
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => { if(e.target === el) el.classList.remove('open'); });
+});
+
+let notifTimer;
+function notify(msg, type='info') {
+  const existing = document.querySelector('.notif');
+  if(existing) existing.remove();
+  const el = document.createElement('div');
+  el.className = `notif ${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => el.remove(), 3500);
+}
+
+async function logout() {
+  await fetch('/api/logout', { method:'POST' });
+  window.location = '/';
+}
+
+loadStats();
+loadServers();
+setInterval(loadStats, 5000);
+setInterval(loadServers, 8000);
+loadFiles('/root');
+</script>
+</body>
+</html>
