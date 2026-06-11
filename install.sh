@@ -17,58 +17,42 @@ play_startup() {
     printf '\a\a'
 }
 
-edex_type() {
+edex_print() {
     local msg="$1"
-    local delay=0.03
     printf '\a\a'
-    for (( i=0; i<${#msg}; i++ )); do
-        echo -en "${msg:$i:1}"
-        sleep $delay
-    done
-    echo ""
-}
-
-edex_loading_bar() {
-    local width=30
-    echo -n "   ["
-    printf '\a\a'
-    for ((i=0; i<width; i++)); do
-        echo -n "█"
-        sleep 0.04
-    done
-    echo "]"
+    echo -e "$msg"
+    sleep 0.3
 }
 
 play_startup
 sleep 0.5
 
-edex_type ">>> INICIANDO SISTEMA DE DESPLIEGUE DIXI PANEL <<<"
-edex_type "========================================================="
-sleep 0.5
+edex_print ">>> INICIANDO SISTEMA DE DESPLIEGUE DIXI PANEL <<<"
+edex_print "========================================================="
+sleep 0.2
 
-edex_type "[+] Sincronizando núcleos del procesador..."
-edex_loading_bar
+edex_print "[+] Sincronizando núcleos del procesador..."
 echo ""
 
-edex_type "[+] Verificando runtime de ejecución principal (Node.js)..."
+edex_print "[+] Verificando runtime de ejecución principal (Node.js)..."
 if ! command -v node &> /dev/null
 then
-    edex_type "[!] Alerta de dependencias: Node.js no encontrado."
-    edex_type "[+] Descargando e instalando paquetes desde los repositorios..."
+    edex_print "[!] Alerta de dependencias: Node.js no encontrado."
+    edex_print "[+] Descargando e instalando paquetes desde los repositorios..."
     printf '\a\a'
     pkg install nodejs -y
 else
-    edex_type "[+] Runtime de Node.js validado de forma correcta."
+    edex_print "[+] Runtime de Node.js validado de forma correcta."
 fi
 
-edex_type "[+] Instalando dependencias internas del proyecto..."
+edex_print "[+] Instalando dependencias internas del proyecto..."
 printf '\a\a'
 npm install
 
-edex_type "========================================================="
-edex_type "[+] PROCESO DE CONFIGURACIÓN COMPLETADO EXITOSAMENTE"
-edex_type "[+] Inicializando el entorno visual..."
-edex_type "========================================================="
+edex_print "========================================================="
+edex_print "[+] PROCESO DE CONFIGURACIÓN COMPLETADO EXITOSAMENTE"
+edex_print "[+] Inicializando el entorno visual..."
+edex_print "========================================================="
 echo ""
 
 play_startup
