@@ -5,34 +5,24 @@ const path = require('path');
 const { execSync } = require('child_process');
 const readline = require('readline');
 
-// ==========================================
-// ESTADO GLOBAL DE LA APLICACIÓN
-// ==========================================
 const state = {
-  mode: 'DASHBOARD', // 'DASHBOARD', 'EXPLORER', 'COMMAND'
-  // Estado del Dashboard
+  mode: 'DASHBOARD',
   cpuHistory: [],
   lastCpuTimes: [],
   netHistory: [],
   prevNet: null,
-  // Estado del Explorador
   currentPath: process.env.HOME || process.cwd() || '/data/data/com.termux/files/home',
   files: [],
   selectedIndex: 0,
   scrollOffset: 0,
-  // Estado de Comandos
   cmdInput: '',
   cmdOutput: ''
 };
 
-// Historiales para cálculos delta de CPU mediante /proc/stat
 let prevCpuTotal = 0;
 let prevCpuIdle = 0;
 let prevCores = [];
 
-// ==========================================
-// CONSTANTES DE DISEÑO Y COLOR
-// ==========================================
 const C = {
   reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[2m',
   cyan: '\x1b[36m', green: '\x1b[32m', yellow: '\x1b[33m',
@@ -47,14 +37,11 @@ const BOX = {
   t: '┬', b: '┴', l: '├', r: '┤', c: '┼'
 };
 
-const EL = '\x1b[K'; // Secuencia ANSI para borrar hasta el final de la línea actual (Evita parpadeo)
+const EL = '\x1b[K';
 
-// ==========================================
-// FUNCIONES DE CONTROL DE TERMINAL (TUI)
-// ==========================================
 const esc = (code) => `\x1b[${code}`;
 const clearScreen = () => process.stdout.write(esc('2J') + esc('0;0H'));
-const resetCursor = () => process.stdout.write(esc('H')); // Retorna cursor a 1,1 sin parpadeo de pantalla
+const resetCursor = () => process.stdout.write(esc('H'));
 const hideCursor = () => process.stdout.write(esc('?25l'));
 const showCursor = () => process.stdout.write(esc('?25h'));
 const moveCursor = (x, y) => process.stdout.write(esc(`${y};${x}H`));
@@ -85,11 +72,19 @@ function writeAt(x, y, text) {
   process.stdout.write(text + EL);
 }
 
-// ==========================================
-// FUNCIONES UTILITARIAS Y DE FORMATEO
-// ==========================================
 function safeCpus() { try { return os.cpus()||[]; } catch(e) { return []; } }
-function safeExec(cmd, t) { try { return execSync(cmd,{timeout:t||1500,encoding:'utf8'}); } catch(e) { return ''; } }
+
+function safeExec(cmd, t) {
+  try {
+    return execSync(cmd, {
+      timeout: t || 1500,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
+  } catch(e) {
+    return '';
+  }
+}
 
 function bar(percent, width, type = 'solid') {
   width = width || 20;
@@ -149,22 +144,16 @@ function pad(str, len, char = ' ') {
   return str + char.repeat(len - visLen);
 }
 
-// ==========================================
-// RECOLECCIÓN DE DATOS DEL SISTEMA (ROBUSTA)
-// ==========================================
 function getCpuMetrics() {
-  // Intenta leer /proc/stat primero (Soporte nativo y exacto en Android/Linux)
   try {
     if (fs.existsSync('/proc/stat')) {
       const data = fs.readFileSync('/proc/stat', 'utf8');
       const lines = data.split('\n');
-      
-      // CPU Total
       const totalLine = lines.find(l => l.startsWith('cpu '));
       let totalPercent = 0;
       if (totalLine) {
         const parts = totalLine.trim().split(/\s+/).slice(1).map(Number);
-        const idle = parts[3] + (parts[4] || 0); // idle + iowait
+        const idle = parts[3] + (parts[4] || 0);
         const total = parts.reduce((a, b) => a + b, 0);
         
         if (prevCpuTotal > 0) {
@@ -178,7 +167,6 @@ function getCpuMetrics() {
         prevCpuIdle = idle;
       }
 
-      // CPU Cores individuales
       const corePercents = [];
       lines.forEach(line => {
         if (line.startsWith('cpu') && !line.startsWith('cpu ')) {
@@ -209,11 +197,8 @@ function getCpuMetrics() {
         return { total: totalPercent, cores: corePercents };
       }
     }
-  } catch (e) {
-    // Si falla la lectura directa, continúa al método estándar os.cpus()
-  }
+  } catch (e) {}
 
-  // Fallback con os.cpus()
   try {
     const cpus = safeCpus();
     if (!cpus.length) return { total: 0, cores: [] };
@@ -314,7 +299,6 @@ function getDiskInfo() {
 }
 
 function getTopProcesses(n) {
-  // Método 1: VPS estándar con ordenamiento por CPU nativo
   let out = safeExec(`ps -eo pid,pcpu,pmem,user,comm --sort=-pcpu 2>/dev/null | head -${n+1} | tail -${n}`, 1500);
   if (out.trim()) {
     return out.split('\n').filter(Boolean).map(line => {
@@ -323,8 +307,7 @@ function getTopProcesses(n) {
     });
   }
 
-  // Método 2: Fallback Termux/Android mediante el comando 'top' en modo batch
-  out = safeExec(`top -b -n 1 -s cpu -m ${n + 4} 2>/dev/null`, 1500);
+  out = safeExec(`top -b -n 1 2>/dev/null`, 1500);
   if (out.trim()) {
     const lines = out.split('\n');
     const procs = [];
@@ -340,8 +323,7 @@ function getTopProcesses(n) {
         const parts = line.split(/\s+/);
         if (parts.length >= 8) {
           const pid = parts[0];
-          const user = parts[1];
-          // En el comando top de Termux, CPU suele ser el parámetro en índice 8 o 9
+          const user = parts[1] || 'user';
           const cpu = parseFloat(parts[8]) || parseFloat(parts[9]) || 0;
           const mem = parseFloat(parts[9]) || parseFloat(parts[10]) || 0;
           const name = parts.slice(11).join(' ') || parts[10] || 'proc';
@@ -355,7 +337,6 @@ function getTopProcesses(n) {
     return procs.slice(0, n);
   }
 
-  // Método 3: Fallback general 'ps' genérico
   out = safeExec('ps -ax 2>/dev/null || ps 2>/dev/null', 1500);
   if (out.trim()) {
     const lines = out.split('\n').slice(1, n + 1);
@@ -382,17 +363,12 @@ function getThermal() {
   return null;
 }
 
-// ==========================================
-// RENDERIZADO DEL DASHBOARD (CERO PARPADEO)
-// ==========================================
 function renderDashboard() {
   const cols = process.stdout.columns || 80;
   const rows = process.stdout.rows || 24;
   
-  // Regresa cursor al inicio para sobrescribir (Cero parpadeo)
   resetCursor();
 
-  // Header principal
   const title = ' DIXI CORE v2.1 - SYSTEM MONITOR ';
   writeAt(Math.floor((cols - title.length) / 2), 1, C.bgCyan + C.black + C.bold + title + C.reset);
   
@@ -400,12 +376,10 @@ function renderDashboard() {
   writeAt(cols - 25, 1, C.gray + now.toLocaleDateString() + ' ' + now.toLocaleTimeString() + C.reset);
   writeAt(2, 1, C.cyan + 'MODE: ' + C.bold + 'DASHBOARD' + C.reset);
 
-  // Dimensiones del Layout de Paneles
   const halfW = Math.floor(cols / 2);
   const leftW = halfW - 1;
   const rightW = cols - halfW - 1;
 
-  // --- PANEL CPU (Arriba Izquierda) ---
   const cpuHeight = 9;
   drawBox(1, 3, leftW, cpuHeight, 'CPU USAGE', C.cyan);
   
@@ -427,12 +401,11 @@ function renderDashboard() {
     writeAt(3, 7, coreLine1);
     writeAt(3, 8, coreLine2);
   } else {
-    writeAt(3, 7, C.gray + ' Detalles de núcleos no disponibles' + C.reset);
+    writeAt(3, 7, C.gray + ' No cores found' + C.reset);
   }
   const load = (() => { try { return os.loadavg(); } catch(e) { return null; } })();
   if (load) writeAt(3, 10, `${C.gray}LOAD AVG:${C.reset} ${load.map(v=>v.toFixed(2)).join(' ')}`);
 
-  // --- PANEL MEMORIA (Arriba Derecha) ---
   drawBox(halfW + 1, 3, rightW, cpuHeight, 'MEMORY', C.magenta);
   const totalMem = os.totalmem(), freeMem = os.freemem(), usedMem = totalMem - freeMem;
   const memPct = totalMem > 0 ? Math.floor((usedMem / totalMem) * 100) : 0;
@@ -445,7 +418,6 @@ function renderDashboard() {
   if (temp) writeAt(halfW + 3, 10, `${C.gray}SYS TEMP:${C.reset} ${temp>70?C.red:temp>50?C.yellow:C.green}${temp}°C${C.reset}`);
   else writeAt(halfW + 3, 10, `${C.gray}SYS TEMP:${C.reset} ${C.dim}N/A${C.reset}`);
 
-  // --- PANEL RED (Medio Izquierda) ---
   const midY = 3 + cpuHeight;
   const midHeight = 8;
   drawBox(1, midY, leftW, midHeight, 'NETWORK', C.blue);
@@ -456,16 +428,15 @@ function renderDashboard() {
     writeAt(3, midY + 4, `${C.gray}TOTAL RX: ${formatBytes(netSpeed.rx)}${C.reset}`);
     writeAt(3, midY + 5, `${C.gray}TOTAL TX: ${formatBytes(netSpeed.tx)}${C.reset}`);
   } else {
-    writeAt(3, midY + 2, C.gray + ' Lectura de Red [No Disponible]' + C.reset);
+    writeAt(3, midY + 2, C.gray + ' No network statistics' + C.reset);
   }
   const ifaces = getNetworkInterfaces();
   if (ifaces.length > 0) {
     writeAt(3, midY + 6, `${C.dim}IP: ${C.reset}${ifaces[0].address}`);
   } else {
-    writeAt(3, midY + 6, `${C.dim}IP: ${C.reset}Sin conexión`);
+    writeAt(3, midY + 6, `${C.dim}IP: ${C.reset}Disconnected`);
   }
 
-  // --- PANEL DISCO Y BATERÍA (Medio Derecha - Auto-Ajustable) ---
   const battery = getBattery();
   const disk = getDiskInfo();
   
@@ -477,7 +448,6 @@ function renderDashboard() {
     if (battery.temp) writeAt(halfW + 3, midY + 3, `${C.gray}TEMP:${C.reset} ${battery.temp}°C`);
   }
 
-  // Si no hay batería (servidor VPS), el bloque de Almacenamiento ocupa todo el espacio medio derecho
   const diskY = battery ? midY + Math.floor(midHeight/2) + 1 : midY;
   const diskH = battery ? midHeight - Math.floor(midHeight/2) - 1 : midHeight;
   drawBox(halfW + 1, diskY, rightW, diskH, 'STORAGE', C.yellow);
@@ -486,10 +456,9 @@ function renderDashboard() {
     writeAt(halfW + 3, diskY + 2, `${C.yellow}■${C.reset} USED: ${disk.used} / ${disk.total} (${disk.mount})`);
     writeAt(halfW + 3, diskY + 3, `${C.green}■${C.reset} FREE: ${disk.avail}`);
   } else {
-    writeAt(halfW + 3, diskY + 2, C.gray + ' No se detectó almacenamiento disponible' + C.reset);
+    writeAt(halfW + 3, diskY + 2, C.gray + ' No storage detected' + C.reset);
   }
 
-  // --- PANEL PROCESOS (Abajo) ---
   const botY = midY + midHeight;
   const botHeight = rows - botY - 2; 
   drawBox(1, botY, cols, botHeight, `TOP PROCESSES (Total: ${getProcessCount()})`, C.red);
@@ -505,16 +474,12 @@ function renderDashboard() {
       writeAt(3, botY + 2 + i, line.substring(0, cols - 6));
     });
   } else {
-    writeAt(3, botY + 3, C.gray + ' [No se pudieron obtener procesos en el entorno actual]' + C.reset);
+    writeAt(3, botY + 3, C.gray + ' No processes found' + C.reset);
   }
 
-  // Footer Informativo
   writeAt(1, rows, `${C.bgGray}${C.black} [E] File Explorer  |  [C] Command Line  |  [Q] Quit ${C.reset}`);
 }
 
-// ==========================================
-// LÓGICA Y RENDERIZADO DEL EXPLORADOR
-// ==========================================
 function loadDirectory() {
   try {
     const items = fs.readdirSync(state.currentPath);
@@ -534,7 +499,6 @@ function loadDirectory() {
       } catch(e) { return null; }
     }).filter(Boolean);
 
-    // Ordenamiento semántico: Carpetas primero, luego orden alfabético
     parsed.sort((a, b) => {
       if (a.isDir && !b.isDir) return -1;
       if (!a.isDir && b.isDir) return 1;
@@ -546,7 +510,7 @@ function loadDirectory() {
     state.scrollOffset = 0;
   } catch(err) {
     state.files = [{ name: '..', isDir: true, size: 0, mtime: null }];
-    state.cmdOutput = `Error reading dir: ${err.message}`;
+    state.cmdOutput = `Error: ${err.message}`;
   }
 }
 
@@ -556,31 +520,25 @@ function renderExplorer() {
   
   resetCursor();
 
-  // Header
   const title = ' DIXI CORE - FILE EXPLORER ';
   writeAt(Math.floor((cols - title.length) / 2), 1, C.bgMagenta + C.black + C.bold + title + C.reset);
   writeAt(2, 1, C.magenta + 'MODE: ' + C.bold + 'EXPLORER' + C.reset);
 
-  // Path actual
   drawBox(1, 3, cols, 3, 'CURRENT PATH', C.yellow);
   writeAt(3, 4, C.bold + state.currentPath.substring(0, cols - 6) + C.reset);
 
-  // Lista de archivos
   const listY = 6;
   const listHeight = rows - listY - 6;
   drawBox(1, listY, cols, listHeight, `FILES (${state.files.length})`, C.cyan);
   
-  // Cabecera de listado
   writeAt(3, listY + 1, C.dim + pad('NAME', Math.floor(cols * 0.5)) + pad('SIZE', 15) + pad('MODIFIED', 20) + C.reset);
 
-  // Ajuste de scroll
   if (state.selectedIndex >= state.scrollOffset + listHeight - 3) {
     state.scrollOffset = state.selectedIndex - listHeight + 4;
   } else if (state.selectedIndex < state.scrollOffset) {
     state.scrollOffset = state.selectedIndex;
   }
 
-  // Renderizado dinámico de archivos
   const visibleFiles = state.files.slice(state.scrollOffset, state.scrollOffset + listHeight - 3);
   visibleFiles.forEach((file, i) => {
     const isSelected = (i + state.scrollOffset === state.selectedIndex);
@@ -604,100 +562,99 @@ function renderExplorer() {
     }
   });
 
-  // Consola de salida integrada inferior
   const infoY = listY + listHeight;
   drawBox(1, infoY, cols, 4, 'OUTPUT / INFO', C.green);
   const outLines = state.cmdOutput.split('\n');
-  writeAt(3, infoY + 1, C.dim + (outLines[0] || 'Listo.').substring(0, cols - 6) + C.reset);
+  writeAt(3, infoY + 1, C.dim + (outLines[0] || 'Ready.').substring(0, cols - 6) + C.reset);
   if (outLines.length > 1) {
     writeAt(3, infoY + 2, C.dim + outLines[1].substring(0, cols - 6) + C.reset);
   } else {
     writeAt(3, infoY + 2, '');
   }
 
-  // Footer
   writeAt(1, rows, `${C.bgGray}${C.black} [↑/↓] Navigate  |  [Enter] Open/Enter  |  [D] Dashboard  |  [C] Command  |  [Q] Quit ${C.reset}`);
 }
 
-// ==========================================
-// RENDERIZADO MODO COMANDO
-// ==========================================
-function renderCommand() {
-  const cols = process.stdout.columns || 80;
-  const rows = process.stdout.rows || 24;
-  
-  resetCursor();
-  drawBox(1, rows - 5, cols, 5, 'EXECUTE COMMAND (in ' + state.currentPath + ')', C.red);
-  writeAt(3, rows - 3, C.bold + C.green + '❯ ' + C.reset + state.cmdInput);
-  writeAt(1, rows, `${C.bgGray}${C.black} Type command and press Enter. [Esc] to cancel. ${C.reset}`);
-  
-  showCursor();
-  moveCursor(5 + state.cmdInput.length, rows - 3);
-}
-
-function executeCommand(cmd) {
-  if (!cmd.trim()) return;
-  try {
-    const result = execSync(cmd, { cwd: state.currentPath, encoding: 'utf8', stdio: 'pipe' });
-    state.cmdOutput = result.trim() || 'Comando ejecutado con éxito (Sin salida).';
-  } catch (err) {
-    state.cmdOutput = err.stderr ? err.stderr.trim() : err.message;
+function handleInteractiveCommand() {
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(false);
   }
+  clearScreen();
+  showCursor();
+
+  console.log(C.bold + C.red + '=== MODO INTERACTIVO DE COMANDOS ===' + C.reset);
+  console.log(C.gray + `Ubicación actual: ${state.currentPath}` + C.reset);
+  console.log(C.yellow + 'Escribe tu comando (o presiona Enter sin escribir para cancelar):' + C.reset);
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  rl.question('❯ ', (cmd) => {
+    rl.close();
+    if (cmd.trim()) {
+      clearScreen();
+      console.log(C.bold + C.cyan + `Ejecutando: ${cmd}\n` + C.reset);
+      try {
+        execSync(cmd, {
+          cwd: state.currentPath,
+          stdio: 'inherit'
+        });
+      } catch (err) {
+        console.log(C.bold + C.red + `\nError al ejecutar: ${err.message}` + C.reset);
+      }
+      
+      const waitRl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      waitRl.question(C.bold + C.green + '\nPresiona [Enter] para regresar al Dixi Panel...' + C.reset, () => {
+        waitRl.close();
+        restoreTUI();
+      });
+    } else {
+      restoreTUI();
+    }
+  });
 }
 
-// ==========================================
-// MOTOR PRINCIPAL Y BUCLE DE RENDER
-// ==========================================
+function restoreTUI() {
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+  }
+  hideCursor();
+  clearScreen();
+  loadDirectory();
+  state.mode = 'EXPLORER';
+  render();
+}
+
 function render() {
   hideCursor();
   if (state.mode === 'DASHBOARD') {
     renderDashboard();
   } else if (state.mode === 'EXPLORER') {
     renderExplorer();
-  } else if (state.mode === 'COMMAND') {
-    renderCommand();
   }
 }
 
-// Configurar lectura sin procesar de la consola para captura directa
 readline.emitKeypressEvents(process.stdin);
 if (process.stdin.isTTY) {
   process.stdin.setRawMode(true);
 }
 
 process.stdin.on('keypress', (str, key) => {
-  // Manejo de salida forzada Ctrl + C
   if (key.ctrl && key.name === 'c') {
     clearScreen();
     showCursor();
     process.exit();
   }
 
-  // Comportamiento del teclado en Modo Consola Directa
   if (state.mode === 'COMMAND') {
-    if (key.name === 'escape') {
-      state.mode = 'EXPLORER';
-      state.cmdInput = '';
-      clearScreen();
-      render();
-    } else if (key.name === 'return') {
-      state.mode = 'EXPLORER';
-      executeCommand(state.cmdInput);
-      state.cmdInput = '';
-      loadDirectory(); 
-      clearScreen();
-      render();
-    } else if (key.name === 'backspace') {
-      state.cmdInput = state.cmdInput.slice(0, -1);
-      render();
-    } else if (str && !key.ctrl && !key.meta) {
-      state.cmdInput += str;
-      render();
-    }
     return;
   }
 
-  // Controles del sistema
   if (key.name === 'q') {
     clearScreen();
     showCursor();
@@ -705,19 +662,16 @@ process.stdin.on('keypress', (str, key) => {
   } else if (key.name === 'e' || key.name === 'E') {
     state.mode = 'EXPLORER';
     loadDirectory();
-    clearScreen(); // Limpia la interfaz para evitar mezclas con el Dashboard
+    clearScreen();
     render();
   } else if (key.name === 'd' || key.name === 'D') {
     state.mode = 'DASHBOARD';
     clearScreen();
     render();
   } else if (key.name === 'c' || key.name === 'C') {
-    state.mode = 'COMMAND';
-    clearScreen();
-    render();
+    handleInteractiveCommand();
   }
 
-  // Navegación dentro del Explorador de Archivos
   if (state.mode === 'EXPLORER') {
     if (key.name === 'up') {
       if (state.selectedIndex > 0) state.selectedIndex--;
@@ -740,11 +694,10 @@ process.stdin.on('keypress', (str, key) => {
       } else {
         const filePath = path.join(state.currentPath, selected.name);
         try {
-          // Intenta previsualizar el archivo
           const content = fs.readFileSync(filePath, 'utf8');
-          state.cmdOutput = `[VISTA PREVIA] ${selected.name}:\n${content.substring(0, 150).replace(/\n/g, ' ')}...`;
+          state.cmdOutput = `[PREVIEW] ${selected.name}:\n${content.substring(0, 150).replace(/\n/g, ' ')}...`;
         } catch(e) {
-          state.cmdOutput = `Archivo binario o ilegible. Tamaño: ${formatBytes(selected.size)}`;
+          state.cmdOutput = `Binary/Unreadable file. Size: ${formatBytes(selected.size)}`;
         }
         render();
       }
@@ -752,20 +705,20 @@ process.stdin.on('keypress', (str, key) => {
   }
 });
 
-// Manejo de cambio de tamaño de pantalla en caliente
 process.stdout.on('resize', () => {
   clearScreen();
   render();
 });
 
-// Inicialización de la aplicación
+getCpuMetrics();
+
 clearScreen();
 loadDirectory();
 render();
 
-// Intervalo de actualización del Dashboard en tiempo real (Cero parpadeo)
 setInterval(() => {
   if (state.mode === 'DASHBOARD') {
     render();
   }
 }, 2000);
+
