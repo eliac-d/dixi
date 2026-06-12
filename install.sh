@@ -23,7 +23,7 @@ sleep 1
 print_line "\e[1;33m[+] Iniciando análisis de arquitectura del sistema...\e[0m"
 sleep 0.5
 DIR_ACTUAL=$(pwd)
-ARCHIVO_JS="$DIR_ACTUAL/dixi_panel.js"
+ARCHIVO_JS="$DIR_ACTUAL/panel.js"
 if [ -f "$ARCHIVO_JS" ]; then
 print_line "\e[1;32m[✓] Archivo principal detectado de manera local.\e[0m"
 if ! grep -q "#!/usr/bin/env node" "$ARCHIVO_JS"; then
