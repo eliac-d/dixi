@@ -1,14 +1,15 @@
 {
-  "name": "dixi-panel",
+  "name": "render-processor",
   "version": "1.0.0",
-  "description": "Panel de control TUI para Termux y VPS",
-  "main": "panel.js",
+  "description": "Microservicio de procesamiento de medios para CDN",
+  "main": "index.js",
   "scripts": {
-    "start": "node panel.js"
+    "start": "node index.js"
   },
   "dependencies": {
-    "blessed": "^0.1.81"
+    "express": "^4.19.2"
   },
-  "author": "eliac-d",
-  "license": "MIT"
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
